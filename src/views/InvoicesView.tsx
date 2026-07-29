@@ -50,7 +50,13 @@ export function InvoicesView() {
   }, [invoices]);
 
   async function markStatus(inv: InvoiceWithDetails, status: 'paid' | 'unpaid' | 'overdue') {
+    // Update Supabase
     await supabase.from('invoices').update({ status }).eq('id', inv.id);
+    
+    // Update local object directly for immediate UI sync
+    inv.status = status;
+    
+    // Reload state from hook
     reload();
     setPreview(null);
   }
