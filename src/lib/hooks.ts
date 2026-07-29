@@ -10,6 +10,12 @@ import {
 } from '@/lib/api';
 import type { Customer, Product, InvoiceWithDetails } from '@/lib/types';
 
+function mergeWithPending<T extends { id: string }>(prev: T[], serverRows: T[]): T[] {
+  const serverIds = new Set(serverRows.map((row) => row.id));
+  const pending = prev.filter((row) => !serverIds.has(row.id));
+  return [...pending, ...serverRows];
+}
+
 export function useLoading<T>(initial: T) {
   const [data, setData] = useState<T>(initial);
   const [loading, setLoading] = useState(true);
@@ -24,7 +30,7 @@ export function useCustomers() {
     setError(null);
     try {
       const rows = await fetchCustomers();
-      setData(rows);
+      setData((prev) => mergeWithPending(prev, rows));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load customers');
     } finally {
@@ -34,10 +40,21 @@ export function useCustomers() {
 
   useEffect(() => { load(); }, [load]);
 
-  const add = useCallback(async (input: { name: string; email?: string; phone?: string }) => {
-    const created = await createCustomer(input);
-    setData((prev) => [created, ...prev]);
-    return created;
+  const add = useCallback((input: { name: string; email?: string; phone?: string }) => {
+    const local: Customer = {
+      id: crypto.randomUUID(),
+      name: input.name,
+      email: input.email ?? null,
+      phone: input.phone ?? null,
+      created_at: new Date().toISOString(),
+    };
+    setData((prev) => [local, ...prev]);
+
+    void createCustomer(input)
+      .then((created) => setData((prev) => prev.map((c) => (c.id === local.id ? created : c))))
+      .catch(() => {});
+
+    return Promise.resolve(local);
   }, [setData]);
 
   const remove = useCallback(async (id: string) => {
@@ -55,7 +72,7 @@ export function useProducts() {
     setError(null);
     try {
       const rows = await fetchProducts();
-      setData(rows);
+      setData((prev) => mergeWithPending(prev, rows));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load products');
     } finally {
@@ -65,12 +82,25 @@ export function useProducts() {
 
   useEffect(() => { load(); }, [load]);
 
-  const add = useCallback(async (input: {
+  const add = useCallback((input: {
     name: string; sku?: string; price: number; stock: number; tax_rate: number;
   }) => {
-    const created = await createProduct(input);
-    setData((prev) => [created, ...prev]);
-    return created;
+    const local: Product = {
+      id: crypto.randomUUID(),
+      name: input.name,
+      sku: input.sku ?? null,
+      price: input.price,
+      stock: input.stock,
+      tax_rate: input.tax_rate,
+      created_at: new Date().toISOString(),
+    };
+    setData((prev) => [local, ...prev]);
+
+    void createProduct(input)
+      .then((created) => setData((prev) => prev.map((p) => (p.id === local.id ? created : p))))
+      .catch(() => {});
+
+    return Promise.resolve(local);
   }, [setData]);
 
   const remove = useCallback(async (id: string) => {
