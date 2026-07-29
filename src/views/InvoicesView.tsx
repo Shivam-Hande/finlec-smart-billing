@@ -50,15 +50,35 @@ export function InvoicesView() {
   }, [invoices]);
 
   async function markStatus(inv: InvoiceWithDetails, status: 'paid' | 'unpaid' | 'overdue') {
-    // Update Supabase
-    await supabase.from('invoices').update({ status }).eq('id', inv.id);
-    
-    // Update local object directly for immediate UI sync
+    // 1. Persist update in Supabase
+    try {
+      await supabase.from('invoices').update({ status }).eq('id', inv.id);
+    } catch (err) {
+      console.warn('Supabase status update fallback to local storage:', err);
+    }
+
+    // 2. Persist update in local storage cache
+    try {
+      const rawLocal = localStorage.getItem('finlec_invoices');
+      if (rawLocal) {
+        const localInvoices = JSON.parse(rawLocal);
+        const updated = localInvoices.map((i: any) =>
+          i.id === inv.id ? { ...i, status } : i
+        );
+        localStorage.setItem('finlec_invoices', JSON.stringify(updated));
+      }
+    } catch (err) {
+      console.error('LocalStorage write error:', err);
+    }
+
+    // 3. Update component memory objects
     inv.status = status;
-    
-    // Reload state from hook
+    if (preview && preview.id === inv.id) {
+      setPreview({ ...preview, status });
+    }
+
+    // 4. Reload hook context
     reload();
-    setPreview(null);
   }
 
   function getGrandTotal(inv: InvoiceWithDetails): number {
