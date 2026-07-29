@@ -7,7 +7,7 @@ import {
   TrendingUp,
   Plus,
 } from 'lucide-react';
-import { Card, PageHeader, Button, StatusBadge } from '@/components/ui';
+import { Card, PageHeader, Button } from '@/components/ui';
 import { useInvoices, useCustomers, useProducts } from '@/lib/hooks';
 import {
   computeTotals,
@@ -17,11 +17,10 @@ import {
 } from '@/lib/types';
 
 export function Dashboard({ onNavigate }: { onNavigate: (view: any) => void }) {
-  const { invoices, loading: invLoading } = useInvoices();
+  const { invoices } = useInvoices();
   const { customers } = useCustomers();
   const { products } = useProducts();
 
-  // Helper to safely get the grand total of an invoice
   function getGrandTotal(inv: InvoiceWithDetails): number {
     if (inv.grand_total && Number(inv.grand_total) > 0) {
       return Number(inv.grand_total);
@@ -37,6 +36,18 @@ export function Dashboard({ onNavigate }: { onNavigate: (view: any) => void }) {
       })),
       Number(inv.discount || 0)
     ).grandTotal;
+  }
+
+  function getMonthKey(dateStr: string): string {
+    const parts = dateStr.split('-');
+    if (parts.length >= 2) {
+      const year = parts[0].slice(-2);
+      const monthIdx = parseInt(parts[1], 10) - 1;
+      const d = new Date(2000, monthIdx, 1);
+      return d.toLocaleString('default', { month: 'short' }) + ' ' + year;
+    }
+    const d = new Date(dateStr);
+    return d.toLocaleString('default', { month: 'short' }) + ' ' + d.getFullYear().toString().slice(-2);
   }
 
   const metrics = useMemo(() => {
@@ -62,7 +73,6 @@ export function Dashboard({ onNavigate }: { onNavigate: (view: any) => void }) {
     return { totalRevenue, paidCount, overdueCount, unpaidCount };
   }, [invoices]);
 
-  // Monthly Revenue Chart Data
   const monthlyData = useMemo(() => {
     const months: Record<string, number> = {};
     const now = new Date();
@@ -75,8 +85,7 @@ export function Dashboard({ onNavigate }: { onNavigate: (view: any) => void }) {
 
     invoices.forEach((inv) => {
       if (!inv.issue_date) return;
-      const d = new Date(inv.issue_date);
-      const key = d.toLocaleString('default', { month: 'short' }) + ' ' + d.getFullYear().toString().slice(-2);
+      const key = getMonthKey(inv.issue_date);
       if (key in months) {
         months[key] += getGrandTotal(inv);
       }
