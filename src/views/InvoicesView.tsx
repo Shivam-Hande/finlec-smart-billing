@@ -55,6 +55,23 @@ export function InvoicesView() {
     setPreview(null);
   }
 
+  function getGrandTotal(inv: InvoiceWithDetails): number {
+    if (inv.grand_total && Number(inv.grand_total) > 0) {
+      return Number(inv.grand_total);
+    }
+    const rawItems = inv.items || inv.invoice_items || [];
+    return computeTotals(
+      rawItems.map((it) => ({
+        product_id: it.product_id,
+        name: it.product?.name || it.name || 'Item',
+        quantity: it.quantity,
+        unit_price: Number(it.unit_price),
+        tax_rate: Number(it.product?.tax_rate || 0),
+      })),
+      Number(inv.discount || 0)
+    ).grandTotal;
+  }
+
   return (
     <div className="animate-[fadeIn_0.3s_ease]">
       <PageHeader
@@ -87,31 +104,36 @@ export function InvoicesView() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {invoices.map((inv) => {
-                  const totals = computeTotals(
-                    inv.invoice_items?.map((it) => ({
-                      product_id: it.product_id,
-                      name: it.name,
-                      quantity: it.quantity,
-                      unit_price: Number(it.unit_price),
-                      tax_rate: Number(it.tax_rate),
-                    })) ?? [],
-                    Number(inv.discount)
-                  );
+                  const grandTotal = getGrandTotal(inv);
                   const status = deriveStatus(inv);
                   return (
                     <tr key={inv.id} className="hover:bg-slate-50/60 transition">
-                      <td className="px-6 py-3.5 font-mono text-xs font-medium text-slate-900">{inv.number}</td>
+                      <td className="px-6 py-3.5 font-mono text-xs font-medium text-slate-900">
+                        {inv.number || inv.id.slice(0, 8)}
+                      </td>
                       <td className="px-6 py-3.5 text-slate-700">{inv.customer?.name ?? '—'}</td>
                       <td className="px-6 py-3.5 text-slate-500">{formatDate(inv.issue_date)}</td>
                       <td className="px-6 py-3.5 text-slate-500">{formatDate(inv.due_date)}</td>
-                      <td className="px-6 py-3.5 text-right font-semibold text-slate-900">{formatCurrency(totals.grandTotal)}</td>
-                      <td className="px-6 py-3.5"><StatusBadge status={status} /></td>
+                      <td className="px-6 py-3.5 text-right font-semibold text-slate-900">
+                        {formatCurrency(grandTotal)}
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <StatusBadge status={status} />
+                      </td>
                       <td className="px-6 py-3.5">
                         <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => setPreview(inv)} className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition" title="Preview">
+                          <button
+                            onClick={() => setPreview(inv)}
+                            className="p-2 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-700 transition"
+                            title="Preview"
+                          >
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button onClick={() => setReminderFor(inv)} className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50 transition" title="AI reminder">
+                          <button
+                            onClick={() => setReminderFor(inv)}
+                            className="p-2 rounded-lg text-emerald-600 hover:bg-emerald-50 transition"
+                            title="AI reminder"
+                          >
                             <Sparkles className="w-4 h-4" />
                           </button>
                         </div>
@@ -149,15 +171,16 @@ function InvoicePreview({
   onClose: () => void;
   onMarkStatus: (s: 'paid' | 'unpaid' | 'overdue') => void;
 }) {
+  const items = invoice.items || invoice.invoice_items || [];
   const totals = computeTotals(
-    invoice.invoice_items?.map((it) => ({
+    items.map((it) => ({
       product_id: it.product_id,
-      name: it.name,
+      name: it.product?.name || it.name || 'Item',
       quantity: it.quantity,
       unit_price: Number(it.unit_price),
-      tax_rate: Number(it.tax_rate),
-    })) ?? [],
-    Number(invoice.discount)
+      tax_rate: Number(it.product?.tax_rate || 0),
+    })),
+    Number(invoice.discount || 0)
   );
   const status = deriveStatus(invoice);
 
@@ -176,7 +199,7 @@ function InvoicePreview({
           </div>
           <div className="text-right">
             <h2 className="text-2xl font-bold text-slate-900 tracking-tight">INVOICE</h2>
-            <p className="text-sm font-mono text-slate-500 mt-1">{invoice.number}</p>
+            <p className="text-sm font-mono text-slate-500 mt-1">{invoice.number || invoice.id.slice(0, 8)}</p>
             <div className="mt-2"><StatusBadge status={status} /></div>
           </div>
         </div>
@@ -206,13 +229,15 @@ function InvoicePreview({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {(invoice.invoice_items ?? []).map((it) => (
-              <tr key={it.id}>
-                <td className="py-3 font-medium text-slate-900">{it.name}</td>
+            {items.map((it, idx) => (
+              <tr key={it.id || idx}>
+                <td className="py-3 font-medium text-slate-900">{it.product?.name || it.name || 'Item'}</td>
                 <td className="py-3 text-center text-slate-600">{it.quantity}</td>
                 <td className="py-3 text-right text-slate-600">{formatCurrency(Number(it.unit_price))}</td>
-                <td className="py-3 text-right text-slate-600">{Number(it.tax_rate)}%</td>
-                <td className="py-3 text-right font-medium text-slate-900">{formatCurrency(Number(it.unit_price) * it.quantity)}</td>
+                <td className="py-3 text-right text-slate-600">{Number(it.product?.tax_rate || 0)}%</td>
+                <td className="py-3 text-right font-medium text-slate-900">
+                  {formatCurrency(Number(it.unit_price) * it.quantity)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -220,11 +245,21 @@ function InvoicePreview({
 
         <div className="flex justify-end mb-8">
           <div className="w-64 space-y-2 text-sm">
-            <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{formatCurrency(totals.subtotal)}</span></div>
-            <div className="flex justify-between text-slate-500"><span>Tax</span><span>{formatCurrency(totals.taxAmount)}</span></div>
-            <div className="flex justify-between text-slate-500"><span>Discount</span><span>-{formatCurrency(totals.discount)}</span></div>
+            <div className="flex justify-between text-slate-500">
+              <span>Subtotal</span>
+              <span>{formatCurrency(invoice.subtotal || totals.subtotal)}</span>
+            </div>
+            <div className="flex justify-between text-slate-500">
+              <span>Tax</span>
+              <span>{formatCurrency(invoice.tax_total || totals.taxAmount)}</span>
+            </div>
+            <div className="flex justify-between text-slate-500">
+              <span>Discount</span>
+              <span>-{formatCurrency(invoice.discount || totals.discount)}</span>
+            </div>
             <div className="flex justify-between border-t border-slate-200 pt-2 font-bold text-slate-900 text-base">
-              <span>Total</span><span>{formatCurrency(totals.grandTotal)}</span>
+              <span>Total</span>
+              <span>{formatCurrency(invoice.grand_total || totals.grandTotal)}</span>
             </div>
           </div>
         </div>
@@ -259,16 +294,18 @@ function InvoicePreview({
 }
 
 function ReminderModal({ invoice, onClose }: { invoice: InvoiceWithDetails; onClose: () => void }) {
+  const items = invoice.items || invoice.invoice_items || [];
   const totals = computeTotals(
-    invoice.invoice_items?.map((it) => ({
+    items.map((it) => ({
       product_id: it.product_id,
-      name: it.name,
+      name: it.product?.name || it.name || 'Item',
       quantity: it.quantity,
       unit_price: Number(it.unit_price),
-      tax_rate: Number(it.tax_rate),
-    })) ?? [],
-    Number(invoice.discount)
+      tax_rate: Number(it.product?.tax_rate || 0),
+    })),
+    Number(invoice.discount || 0)
   );
+  const grandTotal = Number(invoice.grand_total) || totals.grandTotal;
   const status = deriveStatus(invoice);
   const daysOverdue =
     status === 'overdue' && invoice.due_date
@@ -287,8 +324,8 @@ function ReminderModal({ invoice, onClose }: { invoice: InvoiceWithDetails; onCl
     setResult(null);
 
     const customerName = invoice.customer?.name ?? 'Customer';
-    const amountStr = formatCurrency(totals.grandTotal);
-    const invoiceNum = invoice.number ?? 'N/A';
+    const amountStr = formatCurrency(grandTotal);
+    const invoiceNum = invoice.number ?? invoice.id.slice(0, 8);
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
     try {
@@ -363,7 +400,9 @@ Respond strictly in valid JSON format with no markdown formatting or backticks:
         <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
           <Sparkles className="w-3 h-3" /> AI
         </span>
-        <span className="text-sm text-slate-500">For invoice <span className="font-mono font-medium text-slate-700">{invoice.number}</span></span>
+        <span className="text-sm text-slate-500">
+          For invoice <span className="font-mono font-medium text-slate-700">{invoice.number || invoice.id.slice(0, 8)}</span>
+        </span>
       </div>
 
       <div className="grid grid-cols-3 gap-2 mb-4 text-sm">
@@ -373,7 +412,7 @@ Respond strictly in valid JSON format with no markdown formatting or backticks:
         </div>
         <div className="rounded-xl bg-slate-50 p-3">
           <p className="text-xs text-slate-400">Amount</p>
-          <p className="font-medium text-slate-900">{formatCurrency(totals.grandTotal)}</p>
+          <p className="font-medium text-slate-900">{formatCurrency(grandTotal)}</p>
         </div>
         <div className="rounded-xl bg-slate-50 p-3">
           <p className="text-xs text-slate-400">Status</p>
