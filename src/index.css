@@ -25,9 +25,42 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Print CSS Stylesheet */
 @media print {
-  body * { visibility: hidden; }
-  .print-area, .print-area * { visibility: visible; }
-  .print-area { position: absolute; left: 0; top: 0; width: 100%; }
-  .no-print { display: none !important; }
+  @page {
+    size: A4;
+    margin: 15mm;
+  }
+
+  /* Hide everything on the page by default */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* Make only the print container and its contents visible */
+  .print-area,
+  .print-area * {
+    visibility: visible !important;
+  }
+
+  /* Reset positioning so the document fills the entire print page */
+  .print-area {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+  }
+
+  /* Explicitly hide non-printable UI controls */
+  .no-print,
+  button,
+  .modal-backdrop {
+    display: none !important;
+  }
 }
