@@ -26,6 +26,7 @@ export interface InvoiceItem {
   quantity: number;
   unit_price: number;
   tax_rate: number;
+  product?: Product;
 }
 
 export interface Invoice {
@@ -38,8 +39,12 @@ export interface Invoice {
   discount: number;
   notes: string | null;
   created_at: string;
+  grand_total?: number;
+  subtotal?: number;
+  tax_total?: number;
   customer?: Customer | null;
   invoice_items?: InvoiceItem[];
+  items?: InvoiceItem[];
 }
 
 export interface InvoiceWithDetails extends Invoice {
@@ -102,8 +107,11 @@ export function generateInvoiceNumber(): string {
 
 export function deriveStatus(invoice: Invoice): InvoiceStatus {
   if (invoice.status === 'paid') return 'paid';
-  if (invoice.due_date && new Date(invoice.due_date) < new Date(new Date().toDateString())) {
+  if (
+    invoice.due_date &&
+    new Date(invoice.due_date) < new Date(new Date().toDateString())
+  ) {
     return 'overdue';
   }
-  return 'unpaid';
+  return invoice.status || 'unpaid';
 }
