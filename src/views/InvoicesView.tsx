@@ -1,8 +1,11 @@
 function ReminderModal({ invoice, onClose }: { invoice: InvoiceWithDetails; onClose: () => void }) {
   const totals = computeTotals(
     invoice.invoice_items?.map((it) => ({
-      product_id: it.product_id, name: it.name, quantity: it.quantity,
-      unit_price: Number(it.unit_price), tax_rate: Number(it.tax_rate),
+      product_id: it.product_id,
+      name: it.name,
+      quantity: it.quantity,
+      unit_price: Number(it.unit_price),
+      tax_rate: Number(it.tax_rate),
     })) ?? [],
     Number(invoice.discount)
   );
@@ -26,32 +29,47 @@ function ReminderModal({ invoice, onClose }: { invoice: InvoiceWithDetails; onCl
     const customerName = invoice.customer?.name ?? 'Customer';
     const amountStr = formatCurrency(totals.grandTotal);
     const invoiceNum = invoice.number ?? 'N/A';
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
     try {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-reminder`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          customerName,
-          invoiceNumber: invoiceNum,
-          amount: totals.grandTotal,
-          dueDate: invoice.due_date ? formatDate(invoice.due_date) : '',
-          daysOverdue,
-          tone,
-        }),
-      });
-      if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setResult({ subject: data.subject, body: data.body });
-    } catch (e) {
-      console.warn('Edge function unreached; generating local fallback template.');
+      if (!apiKey) {
+        throw new Error('No Gemini API key found in VITE_GEMINI_API_KEY');
+      }
 
-      // Fallback local generator based on selected tone
+      const prompt = `Write a payment reminder email for an invoice with the following details:
+- Customer Name: ${customerName}
+- Invoice Number: ${invoiceNum}
+- Amount Due: ${amountStr}
+- Due Date: ${invoice.due_date ? formatDate(invoice.due_date) : 'N/A'}
+- Days Overdue: ${daysOverdue}
+- Tone: ${tone}
+
+Respond strictly in valid JSON format with no markdown formatting or backticks:
+{"subject": "Your subject line here", "body": "Your email body text here"}`;
+
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { responseMimeType: 'application/json' },
+          }),
+        }
+      );
+
+      if (!res.ok) throw new Error(`Gemini API error (${res.status})`);
+      const data = await res.json();
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!rawText) throw new Error('Empty response from Gemini');
+
+      const parsed = JSON.parse(rawText);
+      setResult({ subject: parsed.subject, body: parsed.body });
+    } catch (e) {
+      console.warn('Gemini API request failed or missing key; using local template fallback.', e);
+
+      // Fallback local generator if API key is invalid or request fails
       const templates: Record<string, { subject: string; body: string }> = {
         friendly: {
           subject: `Friendly reminder: Invoice ${invoiceNum} from Smart Billing`,
