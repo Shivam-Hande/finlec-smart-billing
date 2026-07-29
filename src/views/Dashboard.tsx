@@ -3,175 +3,216 @@ import {
   DollarSign,
   CheckCircle2,
   AlertTriangle,
+  Clock,
   TrendingUp,
-  FileText,
-  Users,
-  ArrowUpRight,
+  Plus,
 } from 'lucide-react';
-import { Card, PageHeader, Button } from '@/components/ui';
+import { Card, PageHeader, Button, StatusBadge } from '@/components/ui';
 import { useInvoices, useCustomers, useProducts } from '@/lib/hooks';
-import { formatCurrency, formatDate, computeTotals, deriveStatus } from '@/lib/types';
+import {
+  computeTotals,
+  formatCurrency,
+  deriveStatus,
+  type InvoiceWithDetails,
+} from '@/lib/types';
 
-export function Dashboard({ onNavigate }: { onNavigate: (v: 'builder' | 'invoices' | 'customers' | 'products' | 'dashboard') => void }) {
-  const { invoices } = useInvoices();
+export function Dashboard({ onNavigate }: { onNavigate: (view: any) => void }) {
+  const { invoices, loading: invLoading } = useInvoices();
   const { customers } = useCustomers();
   const { products } = useProducts();
+
+  // Helper to safely get the grand total of an invoice
+  function getGrandTotal(inv: InvoiceWithDetails): number {
+    if (inv.grand_total && Number(inv.grand_total) > 0) {
+      return Number(inv.grand_total);
+    }
+    const rawItems = inv.items || inv.invoice_items || [];
+    return computeTotals(
+      rawItems.map((it) => ({
+        product_id: it.product_id,
+        name: it.product?.name || it.name || 'Item',
+        quantity: it.quantity,
+        unit_price: Number(it.unit_price),
+        tax_rate: Number(it.product?.tax_rate || 0),
+      })),
+      Number(inv.discount || 0)
+    ).grandTotal;
+  }
 
   const metrics = useMemo(() => {
     let totalRevenue = 0;
     let paidCount = 0;
     let overdueCount = 0;
     let unpaidCount = 0;
-    const monthly: Record<string, number> = {};
 
     invoices.forEach((inv) => {
-      const totals = computeTotals(
-        inv.invoice_items?.map((it) => ({
-          product_id: it.product_id,
-          name: it.name,
-          quantity: it.quantity,
-          unit_price: Number(it.unit_price),
-          tax_rate: Number(it.tax_rate),
-        })) ?? [],
-        Number(inv.discount)
-      );
       const status = deriveStatus(inv);
+      const total = getGrandTotal(inv);
+
       if (status === 'paid') {
-        totalRevenue += totals.grandTotal;
+        totalRevenue += total;
         paidCount++;
       } else if (status === 'overdue') {
         overdueCount++;
       } else {
         unpaidCount++;
       }
-      const key = new Date(inv.issue_date).toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
-      monthly[key] = (monthly[key] ?? 0) + totals.grandTotal;
     });
 
-    const months = Object.entries(monthly).slice(-6);
-    return { totalRevenue, paidCount, overdueCount, unpaidCount, months };
+    return { totalRevenue, paidCount, overdueCount, unpaidCount };
   }, [invoices]);
 
-  const maxMonthly = Math.max(...metrics.months.map((m) => m[1]), 1);
+  // Monthly Revenue Chart Data
+  const monthlyData = useMemo(() => {
+    const months: Record<string, number> = {};
+    const now = new Date();
+
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = d.toLocaleString('default', { month: 'short' }) + ' ' + d.getFullYear().toString().slice(-2);
+      months[key] = 0;
+    }
+
+    invoices.forEach((inv) => {
+      if (!inv.issue_date) return;
+      const d = new Date(inv.issue_date);
+      const key = d.toLocaleString('default', { month: 'short' }) + ' ' + d.getFullYear().toString().slice(-2);
+      if (key in months) {
+        months[key] += getGrandTotal(inv);
+      }
+    });
+
+    const entries = Object.entries(months);
+    const maxVal = Math.max(...entries.map(([, v]) => v), 1);
+    return { entries, maxVal };
+  }, [invoices]);
 
   return (
-    <div className="animate-[fadeIn_0.3s_ease]">
+    <div className="space-y-6 animate-[fadeIn_0.3s_ease]">
       <PageHeader
         title="Dashboard"
         subtitle="Overview of your billing activity"
         action={
           <Button onClick={() => onNavigate('builder')}>
-            <FileText className="w-4 h-4" /> Create Invoice
+            <Plus className="w-4 h-4" /> Create Invoice
           </Button>
         }
       />
 
-      {/* Metric cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <MetricCard
-          label="Total Revenue"
-          value={formatCurrency(metrics.totalRevenue)}
-          icon={<DollarSign className="w-5 h-5" />}
-          accent="emerald"
-          sub={`${metrics.paidCount} paid invoices`}
-        />
-        <MetricCard
-          label="Paid Invoices"
-          value={String(metrics.paidCount)}
-          icon={<CheckCircle2 className="w-5 h-5" />}
-          accent="sky"
-          sub="Collected successfully"
-        />
-        <MetricCard
-          label="Overdue"
-          value={String(metrics.overdueCount)}
-          icon={<AlertTriangle className="w-5 h-5" />}
-          accent="rose"
-          sub="Needs attention"
-        />
-        <MetricCard
-          label="Outstanding"
-          value={String(metrics.unpaidCount)}
-          icon={<TrendingUp className="w-5 h-5" />}
-          accent="amber"
-          sub="Awaiting payment"
-        />
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card className="p-5 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Revenue</p>
+            <h3 className="text-2xl font-bold text-slate-900 mt-1">{formatCurrency(metrics.totalRevenue)}</h3>
+            <p className="text-xs text-slate-400 mt-1">{metrics.paidCount} paid invoices</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <DollarSign className="w-5 h-5" />
+          </div>
+        </Card>
+
+        <Card className="p-5 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Paid Invoices</p>
+            <h3 className="text-2xl font-bold text-slate-900 mt-1">{metrics.paidCount}</h3>
+            <p className="text-xs text-slate-400 mt-1">Collected successfully</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+        </Card>
+
+        <Card className="p-5 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Overdue</p>
+            <h3 className="text-2xl font-bold text-slate-900 mt-1">{metrics.overdueCount}</h3>
+            <p className="text-xs text-slate-400 mt-1">Needs attention</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+        </Card>
+
+        <Card className="p-5 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">Outstanding</p>
+            <h3 className="text-2xl font-bold text-slate-900 mt-1">{metrics.unpaidCount}</h3>
+            <p className="text-xs text-slate-400 mt-1">Awaiting payment</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
+            <TrendingUp className="w-5 h-5" />
+          </div>
+        </Card>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Sales chart */}
+        {/* Revenue Chart */}
         <Card className="lg:col-span-2 p-6">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="font-semibold text-slate-900">Revenue by Month</h2>
-              <p className="text-sm text-slate-500">Last 6 months of invoiced totals</p>
+              <h3 className="font-semibold text-slate-900">Revenue by Month</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Last 6 months of invoiced totals</p>
             </div>
-            <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">
-              <ArrowUpRight className="w-3.5 h-3.5" /> Live
-            </div>
+            <span className="text-xs font-medium px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg">
+              ↗ Live
+            </span>
           </div>
-          {metrics.months.length === 0 ? (
-            <div className="h-56 flex items-center justify-center text-sm text-slate-400">
-              No invoice data yet
-            </div>
-          ) : (
-            <div className="flex items-end justify-between gap-3 h-56">
-              {metrics.months.map(([label, value]) => {
-                const heightPct = Math.max((value / maxMonthly) * 100, 4);
-                return (
-                  <div key={label} className="flex-1 flex flex-col items-center gap-2 group">
-                    <div className="relative w-full flex-1 flex items-end">
-                      <div
-                        className="w-full rounded-t-lg bg-gradient-to-t from-emerald-500 to-teal-400 transition-all duration-500 group-hover:from-emerald-600 group-hover:to-teal-500"
-                        style={{ height: `${heightPct}%` }}
-                      >
-                        <div className="opacity-0 group-hover:opacity-100 transition absolute -top-7 left-1/2 -translate-x-1/2 text-[11px] font-semibold text-slate-700 bg-white px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap">
-                          {formatCurrency(value)}
-                        </div>
-                      </div>
-                    </div>
-                    <span className="text-xs text-slate-500 font-medium">{label}</span>
+
+          <div className="h-48 flex items-end justify-between gap-3 pt-6 border-b border-slate-100 pb-2">
+            {monthlyData.entries.map(([label, amount]) => {
+              const heightPercent = Math.max((amount / monthlyData.maxVal) * 100, 8);
+              return (
+                <div key={label} className="flex-1 flex flex-col items-center gap-2 h-full justify-end group">
+                  <div className="text-[10px] font-semibold text-slate-600 opacity-0 group-hover:opacity-100 transition">
+                    {formatCurrency(amount)}
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <div
+                    style={{ height: `${heightPercent}%` }}
+                    className="w-full bg-emerald-500/80 hover:bg-emerald-600 rounded-t-lg transition-all duration-300"
+                  />
+                  <span className="text-[11px] text-slate-400 font-medium">{label}</span>
+                </div>
+              );
+            })}
+          </div>
         </Card>
 
-        {/* Quick stats */}
-        <div className="space-y-4">
+        {/* At a glance & Recent Invoices */}
+        <div className="space-y-6">
           <Card className="p-5">
-            <h3 className="font-semibold text-slate-900 mb-4">At a glance</h3>
-            <div className="space-y-3">
-              <StatRow icon={<Users className="w-4 h-4 text-slate-400" />} label="Customers" value={String(customers.length)} onClick={() => onNavigate('customers')} />
-              <StatRow icon={<FileText className="w-4 h-4 text-slate-400" />} label="Total Invoices" value={String(invoices.length)} onClick={() => onNavigate('invoices')} />
-              <StatRow icon={<TrendingUp className="w-4 h-4 text-slate-400" />} label="Products in Stock" value={String(products.length)} onClick={() => onNavigate('products')} />
+            <h3 className="font-semibold text-slate-900 text-sm mb-4">At a glance</h3>
+            <div className="space-y-3 text-sm">
+              <div className="flex justify-between items-center py-1">
+                <span className="text-slate-500">Customers</span>
+                <span className="font-bold text-slate-900">{customers.length}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-t border-slate-50">
+                <span className="text-slate-500">Total Invoices</span>
+                <span className="font-bold text-slate-900">{invoices.length}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-t border-slate-50">
+                <span className="text-slate-500">Products in Stock</span>
+                <span className="font-bold text-slate-900">{products.length}</span>
+              </div>
             </div>
           </Card>
 
           <Card className="p-5">
-            <h3 className="font-semibold text-slate-900 mb-3">Recent invoices</h3>
+            <h3 className="font-semibold text-slate-900 text-sm mb-3">Recent invoices</h3>
             {invoices.length === 0 ? (
-              <p className="text-sm text-slate-400 py-4 text-center">No invoices yet</p>
+              <p className="text-xs text-slate-400">No invoices generated yet.</p>
             ) : (
-              <div className="space-y-2.5">
+              <div className="space-y-3">
                 {invoices.slice(0, 4).map((inv) => (
-                  <div key={inv.id} className="flex items-center justify-between text-sm">
-                    <div className="min-w-0">
-                      <p className="font-medium text-slate-700 truncate">{inv.number}</p>
-                      <p className="text-xs text-slate-400">{inv.customer?.name ?? '—'} · {formatDate(inv.issue_date)}</p>
+                  <div key={inv.id} className="flex items-center justify-between text-xs">
+                    <div>
+                      <p className="font-medium text-slate-900">{inv.customer?.name ?? '—'}</p>
+                      <p className="text-slate-400">{inv.issue_date}</p>
                     </div>
-                    <span className="font-semibold text-slate-900 shrink-0 ml-2">
-                      {formatCurrency(
-                        computeTotals(
-                          inv.invoice_items?.map((it) => ({
-                            product_id: it.product_id, name: it.name, quantity: it.quantity,
-                            unit_price: Number(it.unit_price), tax_rate: Number(it.tax_rate),
-                          })) ?? [],
-                          Number(inv.discount)
-                        ).grandTotal
-                      )}
-                    </span>
+                    <div className="text-right">
+                      <p className="font-bold text-slate-900">{formatCurrency(getGrandTotal(inv))}</p>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -180,52 +221,5 @@ export function Dashboard({ onNavigate }: { onNavigate: (v: 'builder' | 'invoice
         </div>
       </div>
     </div>
-  );
-}
-
-const ACCENTS: Record<string, string> = {
-  emerald: 'bg-emerald-50 text-emerald-600',
-  sky: 'bg-sky-50 text-sky-600',
-  rose: 'bg-rose-50 text-rose-600',
-  amber: 'bg-amber-50 text-amber-600',
-};
-
-function MetricCard({
-  label,
-  value,
-  icon,
-  accent,
-  sub,
-}: {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  accent: keyof typeof ACCENTS;
-  sub: string;
-}) {
-  return (
-    <Card className="p-5 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-slate-500">{label}</p>
-          <p className="text-2xl font-bold text-slate-900 mt-1.5 tracking-tight">{value}</p>
-        </div>
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${ACCENTS[accent]}`}>
-          {icon}
-        </div>
-      </div>
-      <p className="text-xs text-slate-400 mt-3">{sub}</p>
-    </Card>
-  );
-}
-
-function StatRow({ icon, label, value, onClick }: { icon: React.ReactNode; label: string; value: string; onClick: () => void }) {
-  return (
-    <button onClick={onClick} className="w-full flex items-center justify-between py-2 px-2 -mx-2 rounded-lg hover:bg-slate-50 transition text-left">
-      <span className="flex items-center gap-2.5 text-sm text-slate-600">
-        {icon} {label}
-      </span>
-      <span className="font-semibold text-slate-900">{value}</span>
-    </button>
   );
 }
