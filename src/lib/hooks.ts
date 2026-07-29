@@ -5,6 +5,7 @@ import {
   fetchInvoices,
   createCustomer,
   createProduct,
+  createInvoice,
   deleteCustomer,
   deleteProduct,
 } from '@/lib/api';
@@ -57,7 +58,6 @@ export function useCustomers() {
         return merged;
       });
     } catch (e) {
-      // Keep existing local items even if backend fails
       const currentLocal = getLocalData<Customer>('finlec_customers');
       setData((prev) => (prev.length > 0 ? prev : currentLocal));
     } finally {
@@ -135,7 +135,6 @@ export function useProducts() {
         return merged;
       });
     } catch (e) {
-      // Keep existing local items even if backend fails
       const currentLocal = getLocalData<Product>('finlec_products');
       setData((prev) => (prev.length > 0 ? prev : currentLocal));
     } finally {
@@ -200,15 +199,23 @@ export function useProducts() {
 }
 
 export function useInvoices() {
-  const { data, setData, loading, setLoading, error, setError } = useLoading<InvoiceWithDetails[]>([]);
+  const { data, setData, loading, setLoading, error, setError } = useLoading<InvoiceWithDetails[]>(() =>
+    getLocalData<InvoiceWithDetails[]>('finlec_invoices')
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const rows = await fetchInvoices();
-      setData(rows);
+      setData((prev) => {
+        const merged = mergeWithPending(prev, rows);
+        setLocalData('finlec_invoices', merged);
+        return merged;
+      });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load invoices');
+      const currentLocal = getLocalData<InvoiceWithDetails[]>('finlec_invoices');
+      setData((prev) => (prev.length > 0 ? prev : currentLocal));
     } finally {
       setLoading(false);
     }
@@ -218,5 +225,17 @@ export function useInvoices() {
     load();
   }, [load]);
 
-  return { invoices: data, setInvoices: setData, loading, error, reload: load };
+  const add = useCallback(
+    (newInvoice: InvoiceWithDetails) => {
+      setData((prev) => {
+        const next = [newInvoice, ...prev];
+        setLocalData('finlec_invoices', next);
+        return next;
+      });
+      return Promise.resolve(newInvoice);
+    },
+    [setData]
+  );
+
+  return { invoices: data, setInvoices: setData, loading, error, reload: load, add };
 }
