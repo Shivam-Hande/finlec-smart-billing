@@ -215,7 +215,8 @@ export interface ParsedReceipt {
 export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; source: string }> {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
-  if (apiKey && !apiKey.includes('your_actual')) {
+  // Validates that the API key exists and isn't a dummy string
+  if (apiKey && apiKey.length > 5 && !apiKey.includes('your_actual')) {
     try {
       // 1. Read image as Base64 string
       const base64Data = await new Promise<string>((resolve, reject) => {
@@ -275,7 +276,7 @@ export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; s
     }
   }
 
-  // Local fallback demo parser (no backend required)
+  // Local fallback demo parser (used if key is missing)
   return {
     source: 'mock',
     data: {
