@@ -74,6 +74,10 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
   }
 
   function swapProduct(index: number, productId: string) {
+    if (!productId) {
+      updateItem(index, { product_id: null });
+      return;
+    }
     const p = products.find((x) => x.id === productId);
     if (!p) return;
     updateItem(index, {
@@ -105,6 +109,15 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
       setParseError('No line items detected on this receipt.');
       return;
     }
+
+    // Try auto-matching customer if detected on receipt
+    if (receipt.vendor) {
+      const matchedCustomer = customers.find(
+        (c) => c.name.toLowerCase().includes(receipt.vendor!.toLowerCase())
+      );
+      if (matchedCustomer) setCustomerId(matchedCustomer.id);
+    }
+
     setItems((prev) => {
       const merged = [...prev];
       receipt.items.forEach((parsed) => {
@@ -122,7 +135,7 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
         } else {
           merged.push({
             product_id: match?.id ?? null,
-            name: parsed.name || 'Unknown Item',
+            name: parsed.name || 'Receipt Item',
             quantity: Math.max(1, parsed.quantity || 1),
             unit_price: match ? Number(match.price) : Number(parsed.price) || 0,
             tax_rate: match ? Number(match.tax_rate) : 0,
@@ -150,11 +163,10 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
 
     const customerObj = customers.find((c) => c.id === customerId);
 
-    // Build complete local invoice structure
     const localInvoice: InvoiceWithDetails = {
       id: crypto.randomUUID(),
       customer_id: customerId,
-      customer: customerObj,
+      customer: customerObj ?? null,
       issue_date: issueDate,
       due_date: dueDate || new Date().toISOString().slice(0, 10),
       status: 'unpaid',
@@ -170,18 +182,21 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
           invoice_id: '',
           product_id: it.product_id ?? '',
           product: prod,
+          name: it.name,
           quantity: it.quantity,
           unit_price: it.unit_price,
+          tax_rate: it.tax_rate,
           amount: it.quantity * it.unit_price,
         };
       }),
+      invoice_items: [],
       created_at: new Date().toISOString(),
     };
 
-    // 1. Instantly save to local state and localStorage
+    // 1. Save locally
     await addInvoice(localInvoice);
 
-    // 2. Try backend request silently without crashing or blocking the UI
+    // 2. Optional backend sync
     try {
       await createInvoice({
         customer_id: customerId,
@@ -193,7 +208,7 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
         status: 'unpaid',
       });
     } catch (e) {
-      console.warn('Backend server unreached; saved invoice in local state.');
+      console.warn('Backend server unreached; saved invoice locally.');
     } finally {
       setSaving(false);
       onSaved();
@@ -296,17 +311,28 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
                     key={i}
                     className="grid grid-cols-12 gap-2 items-center p-3 rounded-xl bg-slate-50 border border-slate-200"
                   >
-                    <div className="col-span-12 sm:col-span-5">
-                      <select
-                        value={it.product_id ?? ''}
-                        onChange={(e) => swapProduct(i, e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-                      >
-                        {products.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                      </select>
+                    <div className="col-span-12 sm:col-span-5 space-y-1">
+                      <input
+                        type="text"
+                        value={it.name}
+                        onChange={(e) => updateItem(i, { name: e.target.value })}
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-slate-400"
+                        placeholder="Item Name"
+                      />
+                      {products.length > 0 && (
+                        <select
+                          value={it.product_id ?? ''}
+                          onChange={(e) => swapProduct(i, e.target.value)}
+                          className="w-full px-2 py-1 rounded border border-slate-200 bg-slate-100 text-xs text-slate-500 focus:outline-none"
+                        >
+                          <option value="">Custom / Receipt Item</option>
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                      )}
                     </div>
+
                     <div className="col-span-4 sm:col-span-2">
                       <input
                         type="number"
@@ -326,7 +352,7 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
                         className="w-full px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-sm text-right focus:outline-none focus:ring-2 focus:ring-slate-400"
                       />
                     </div>
-                    <div className="col-span-3 sm:col-span-2 text-right text-sm font-medium text-slate-700">
+                    <div className="col-span-3 sm:col-span-2 text-right text-sm font-semibold text-slate-900">
                       {formatCurrency(it.unit_price * it.quantity)}
                     </div>
                     <div className="col-span-1 flex justify-end">
