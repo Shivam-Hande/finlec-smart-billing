@@ -215,10 +215,8 @@ export interface ParsedReceipt {
 export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; source: string }> {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
 
-  // Validates that the API key exists and isn't a dummy string
-  if (apiKey && apiKey.length > 5 && !apiKey.includes('your_actual')) {
+  if (apiKey && apiKey.length > 5) {
     try {
-      // 1. Read image as Base64 string
       const base64Data = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -229,9 +227,9 @@ export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; s
         reader.readAsDataURL(file);
       });
 
-      // 2. Call Gemini API directly from browser
+      // Updated to supported model endpoint: gemini-2.5-flash
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -240,9 +238,9 @@ export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; s
               {
                 parts: [
                   {
-                    text: `Extract billing data from this image and return ONLY a valid JSON object matching this structure with no markdown or code blocks:
+                    text: `Extract billing data from this image and return ONLY a valid JSON object matching this exact structure with no markdown or backticks:
 {
-  "vendor": "Vendor or Customer Name",
+  "vendor": "Vendor Name",
   "total": 389.00,
   "items": [
     { "name": "Item Name", "quantity": 1, "price": 50.00 }
@@ -270,13 +268,15 @@ export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; s
           const parsed = JSON.parse(rawText);
           return { data: parsed, source: 'gemini' };
         }
+      } else {
+        const errorText = await res.text();
+        console.error(`Gemini API Request Error (${res.status}):`, errorText);
       }
     } catch (e) {
       console.warn('Gemini request failed; using local demo fallback:', e);
     }
   }
 
-  // Local fallback demo parser (used if key is missing)
   return {
     source: 'mock',
     data: {
