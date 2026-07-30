@@ -18,7 +18,7 @@ import {
   EmptyState,
 } from '@/components/ui';
 import { useCustomers, useProducts, useInvoices } from '@/lib/hooks';
-import { createInvoice, parseReceipt, type ParsedReceipt } from '@/lib/api';
+import { createInvoice, createCustomer, parseReceipt, type ParsedReceipt } from '@/lib/api';
 import {
   computeTotals,
   formatCurrency,
@@ -27,7 +27,7 @@ import {
 } from '@/lib/types';
 
 export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
-  const { customers } = useCustomers();
+  const { customers, refresh: refreshCustomers } = useCustomers();
   const { products } = useProducts();
   const { add: addInvoice } = useInvoices();
 
@@ -95,7 +95,7 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
     try {
       const { data, source } = await parseReceipt(file);
       setParseSource(source);
-      applyParsedReceipt(data);
+      await applyParsedReceipt(data);
     } catch (e) {
       setParseError(e instanceof Error ? e.message : 'Could not parse that receipt.');
     } finally {
@@ -104,20 +104,44 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
     }
   }
 
-  function applyParsedReceipt(receipt: ParsedReceipt) {
+  async function applyParsedReceipt(receipt: ParsedReceipt) {
     if (!receipt.items || receipt.items.length === 0) {
       setParseError('No line items detected on this receipt.');
       return;
     }
 
-    // Try auto-matching customer if detected on receipt
-    if (receipt.vendor) {
-      const matchedCustomer = customers.find(
-        (c) => c.name.toLowerCase().includes(receipt.vendor!.toLowerCase())
-      );
-      if (matchedCustomer) setCustomerId(matchedCustomer.id);
+    // 1. Auto-fill Dates
+    if (receipt.issueDate) setIssueDate(receipt.issueDate);
+    if (receipt.dueDate) setDueDate(receipt.dueDate);
+
+    // 2. Auto-fill Discount
+    if (receipt.discount !== undefined && receipt.discount > 0) {
+      setDiscount(receipt.discount.toString());
     }
 
+    // 3. Match or Create Customer (e.g., Alex Morgan)
+    const custTargetName = receipt.customerName || receipt.vendor;
+    if (custTargetName) {
+      const matchedCustomer = customers.find(
+        (c) => c.name.toLowerCase() === custTargetName.toLowerCase()
+      );
+      if (matchedCustomer) {
+        setCustomerId(matchedCustomer.id);
+      } else {
+        try {
+          const newCustomer = await createCustomer({
+            name: custTargetName,
+            email: receipt.customerEmail,
+          });
+          if (refreshCustomers) await refreshCustomers();
+          setCustomerId(newCustomer.id);
+        } catch {
+          // If creation fails, user can select manually
+        }
+      }
+    }
+
+    // 4. Fill Items with Tax Rates
     setItems((prev) => {
       const merged = [...prev];
       receipt.items.forEach((parsed) => {
@@ -127,6 +151,9 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
         const existingIdx = merged.findIndex(
           (it) => it.name.toLowerCase() === parsed.name.toLowerCase()
         );
+
+        const itemTax = parsed.taxRate ?? (match ? Number(match.tax_rate) : 5);
+
         if (existingIdx >= 0) {
           merged[existingIdx] = {
             ...merged[existingIdx],
@@ -138,22 +165,12 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
             name: parsed.name || 'Receipt Item',
             quantity: Math.max(1, parsed.quantity || 1),
             unit_price: match ? Number(match.price) : Number(parsed.price) || 0,
-            tax_rate: match ? Number(match.tax_rate) : 0,
+            tax_rate: itemTax,
           });
         }
       });
       return merged;
     });
-
-    if (receipt.total > 0) {
-      const computedSubtotal = receipt.items.reduce(
-        (s, it) => s + (it.price || 0) * (it.quantity || 1),
-        0
-      );
-      if (receipt.total < computedSubtotal && (!discount || discount === '0')) {
-        setDiscount((computedSubtotal - receipt.total).toFixed(2));
-      }
-    }
   }
 
   async function save() {
@@ -207,8 +224,8 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
         notes: notes.trim() || undefined,
         status: 'unpaid',
       });
-    } catch (e) {
-      console.warn('Backend server unreached; saved invoice locally.');
+    } catch {
+      console.warn('Backend unreached; saved invoice locally.');
     } finally {
       setSaving(false);
       onSaved();
@@ -238,7 +255,7 @@ export function InvoiceBuilder({ onSaved }: { onSaved: () => void }) {
               </span>
             </h3>
             <p className="text-sm text-slate-500 mt-0.5">
-              Upload an image or PDF of a receipt — AI Vision extracts vendor, items, and totals to pre-fill the form.
+              Upload an image or PDF of a receipt — AI Vision extracts customer, items, discount, tax, and dates.
             </p>
           </div>
           <input
