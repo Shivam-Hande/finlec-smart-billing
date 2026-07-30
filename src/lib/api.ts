@@ -232,9 +232,9 @@ export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; s
         reader.readAsDataURL(file);
       });
 
-      // Valid current model endpoint: gemini-2.0-flash
+      // Updated to gemini-1.5-flash for separate free-tier quota pool
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -243,7 +243,7 @@ export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; s
               {
                 parts: [
                   {
-                    text: `Extract billing data from this image and return ONLY a valid JSON object with no markdown or backticks:
+                    text: `Extract billing data from this image and return ONLY a valid JSON object matching this schema with no markdown or backticks:
 {
   "customerName": "Customer Name from receipt (e.g. Alex Morgan)",
   "customerEmail": "Customer Email from receipt (e.g. alex.morgan@example.com)",
@@ -287,7 +287,7 @@ export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; s
     }
   }
 
-  // Fallback demo data with full fields populated
+  // Fallback demo data with customer fields fully populated
   return {
     source: 'mock',
     data: {
