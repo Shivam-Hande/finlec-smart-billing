@@ -227,9 +227,9 @@ export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; s
         reader.readAsDataURL(file);
       });
 
-      // Updated to supported model endpoint: gemini-2.5-flash
+      // Updated endpoint: gemini-3.6-flash
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
