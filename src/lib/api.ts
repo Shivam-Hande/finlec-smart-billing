@@ -207,8 +207,13 @@ export async function createInvoice(input: CreateInvoiceInput): Promise<CreateIn
 export interface ParsedReceipt {
   vendorName?: string;
   vendor?: string;
-  items: { name: string; price: number; quantity: number }[];
-  tax?: number;
+  customerName?: string;
+  customerEmail?: string;
+  issueDate?: string;
+  dueDate?: string;
+  discount?: number;
+  taxTotal?: number;
+  items: { name: string; price: number; quantity: number; taxRate?: number }[];
   total: number;
 }
 
@@ -227,9 +232,9 @@ export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; s
         reader.readAsDataURL(file);
       });
 
-      // Updated endpoint: gemini-3.6-flash
+      // Valid current model endpoint: gemini-2.0-flash
       const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -238,12 +243,17 @@ export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; s
               {
                 parts: [
                   {
-                    text: `Extract billing data from this image and return ONLY a valid JSON object matching this exact structure with no markdown or backticks:
+                    text: `Extract billing data from this image and return ONLY a valid JSON object with no markdown or backticks:
 {
-  "vendor": "Vendor Name",
+  "customerName": "Customer Name from receipt (e.g. Alex Morgan)",
+  "customerEmail": "Customer Email from receipt (e.g. alex.morgan@example.com)",
+  "issueDate": "YYYY-MM-DD",
+  "dueDate": "YYYY-MM-DD",
+  "discount": 10.00,
+  "taxTotal": 19.00,
   "total": 389.00,
   "items": [
-    { "name": "Item Name", "quantity": 1, "price": 50.00 }
+    { "name": "Item Name", "quantity": 1, "price": 150.00, "taxRate": 5 }
   ]
 }`,
                   },
@@ -273,18 +283,24 @@ export async function parseReceipt(file: File): Promise<{ data: ParsedReceipt; s
         console.error(`Gemini API Request Error (${res.status}):`, errorText);
       }
     } catch (e) {
-      console.warn('Gemini request failed; using local demo fallback:', e);
+      console.warn('Gemini request failed; using fallback:', e);
     }
   }
 
+  // Fallback demo data with full fields populated
   return {
     source: 'mock',
     data: {
-      vendor: 'Acme Supplies Inc.',
+      customerName: 'Alex Morgan',
+      customerEmail: 'alex.morgan@example.com',
+      issueDate: '2026-07-28',
+      dueDate: '2026-08-12',
+      discount: 10.0,
+      taxTotal: 19.0,
       total: 389.0,
       items: [
-        { name: 'Ergonomic Office Chair', quantity: 2, price: 150.0 },
-        { name: 'Wireless Mechanical Keyboard', quantity: 1, price: 80.0 },
+        { name: 'Ergonomic Office Chair', quantity: 2, price: 150.0, taxRate: 5 },
+        { name: 'Wireless Mechanical Keyboard', quantity: 1, price: 80.0, taxRate: 5 },
       ],
     },
   };
